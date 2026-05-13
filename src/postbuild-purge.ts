@@ -460,9 +460,29 @@ function purgeAttributes(css: string, attrSafelist: Set<string>): string {
   return root.toString();
 }
 
+// ── Runtime CSS variable references ──────────────────────────────────────────
+
+async function collectRuntimeCssVarRefs(distDir: string): Promise<Set<string>> {
+  const refs = new Set<string>();
+  const glob = new Glob("**/*.{js,mjs,cjs}");
+
+  for await (const relPath of glob.scan({ cwd: distDir })) {
+    const fullPath = `${distDir}/${relPath}`;
+    const code = await Bun.file(fullPath).text();
+    for (const match of code.matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)/g)) {
+      refs.add(match[1]);
+    }
+  }
+
+  return refs;
+}
+
 // ── Level 3: unused CSS variable cleanup (postcss) ───────────────────────────
 
-function cleanUnusedVars(css: string): string {
+function cleanUnusedVars(
+  css: string,
+  externallyReferencedVars: Set<string>,
+): string {
   let changed = true;
   let result = css;
 
@@ -477,7 +497,7 @@ function cleanUnusedVars(css: string): string {
       declared.set(decl.prop, entries);
     });
 
-    const referenced = new Set<string>();
+    const referenced = new Set<string>(externallyReferencedVars);
     root.walkDecls((decl) => {
       const refs = decl.value.matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)/g);
       for (const ref of refs) referenced.add(ref[1]);
@@ -549,6 +569,12 @@ async function main() {
   // Also scan for prop-level attr purging
   const usages = await scanConsumerSource(srcDir);
   const { attrSafelist } = buildSafelists(usages, manifest);
+  const runtimeCssVarRefs = await collectRuntimeCssVarRefs(distDir);
+  if (runtimeCssVarRefs.size > 0) {
+    console.log(
+      `[css-purge] Runtime CSS vars referenced from JS: ${runtimeCssVarRefs.size}`,
+    );
+  }
 
   // 4. Glob CSS files in dist
   const glob = new Glob("**/*.css");
@@ -574,7 +600,7 @@ async function main() {
     console.log(`[css-purge]   L2 attr purge: ${(afterL1 / 1024).toFixed(1)} → ${(afterL2 / 1024).toFixed(1)} KB`);
 
     // Level 3: unused CSS variable cleanup
-    purgedCss = cleanUnusedVars(purgedCss);
+    purgedCss = cleanUnusedVars(purgedCss, runtimeCssVarRefs);
     const afterL3 = Buffer.byteLength(purgedCss, "utf-8");
     console.log(`[css-purge]   L3 var cleanup: → ${(afterL3 / 1024).toFixed(1)} KB`);
 
