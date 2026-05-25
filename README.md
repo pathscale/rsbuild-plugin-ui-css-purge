@@ -1,131 +1,141 @@
-# @pathscale/rebuild-plugin-ui-css-purge
+# @pathscale/rsbuild-plugin-ui-css-purge
 
-Three-level CSS purge for `@pathscale/ui` consumers. Analyzes JSX usage at build time, cross-references with a component class manifest, and strips unused CSS rules, attribute selectors, and custom properties.
+Database-first CSS purge for `@pathscale/ui` consumers. It scans consumer JSX with SWC, cross-references a versioned component purge database, and removes only selectors whose ownership and unused state are known.
 
-Runs as a postbuild step under Bun. Zero Node dependencies.
+Runs as a postbuild step under Bun.
 
-## How it works
+## How It Works
 
-The purge operates in two phases across two repositories:
+The purge operates in two phases across two repositories.
 
-**Phase 1 (lib-side, `@pathscale/ui`):** Each component ships a `.classnames.ts` file declaring all CSS classes it uses, organized by slot (`base`, `variant`, `size`, `flag`, `color`, `attrs`). A prebuild script reads these files and produces `purge-manifest.json` — a compact database mapping components to their class and attribute requirements.
+**Lib side (`@pathscale/ui`):** Components ship `*.classes.ts` files that describe component-owned classes by slot and prop. The manifest generator also scans colocated component CSS for selectors, data/aria attributes, CSS variable references, keyframes, and component dependencies. It writes a versioned `purge-manifest.json` database:
 
-**Phase 2 (consumer-side, e.g. `honey.id`):** After `rsbuild build`, the postbuild script scans the consumer's JSX source with [swc](https://swc.rs/), finds all `@pathscale/ui` component usages with their prop values, and cross-references with the manifest to determine exactly which CSS classes and attribute selectors are needed. Three purge levels run in sequence:
-
-| Level | What it does | Engine |
-|-------|-------------|--------|
-| L1 | Removes entire CSS rules whose class selectors aren't in the safelist | [purgecss](https://purgecss.com/) |
-| L2 | Within kept rules, strips `[data-*]` / `[aria-*]` attribute selectors not in the attr safelist | [postcss](https://postcss.org/) AST walk |
-| L3 | Iteratively removes CSS custom properties that are declared but never referenced | postcss AST walk |
-
-## Results
-
-Tested on `honey.id` with 3 components having `.classnames.ts` files (Button, Breadcrumbs, Navbar):
-
-```
-440.7 KB  raw CSS (before)
- 42.3 KB  after L1 (class purge)
- 42.3 KB  after L2 (attr purge)
- 27.7 KB  after L3 (var cleanup)
-  4.4 KB  brotli compressed
+```ts
+interface PurgeDatabaseV2 {
+	version: 2;
+	components: Record<string, ComponentPurgeRecord>;
+	shared: {
+		selectors: { selector: string; components: string[] }[];
+		cssVars: Record<string, { declaredBy: string[]; referencedBy: string[] }>;
+		keyframes: Record<string, { declaredBy: string[]; referencedBy: string[] }>;
+	};
+}
 ```
 
-93.7% reduction in raw CSS size.
+**Consumer side:** After `rsbuild build`, the CLI scans source files for canonical `@pathscale/ui` usage, including aliases, deep imports, namespace imports, compound JSX such as `Modal.Root`, re-exports, spreads, and dynamic props. It builds usage facts and applies the database conservatively.
+
+## Purge Rules
+
+| Rule | Behavior |
+| --- | --- |
+| Unused known component | Selectors owned only by that component can be removed. |
+| Used component, unused prop variant | Selectors requiring that known unused class can be removed. |
+| Runtime data/aria state | Kept when the owning used component selector is kept. |
+| Unknown ownership | Kept by default. |
+| Theme, reset, app selectors | Kept unless they are fully known unused component selectors. |
+| CSS vars and keyframes | Removed only after selector purge proves they are unreferenced. |
+
+The selector walk uses PostCSS. Lightning CSS is used for final minification.
 
 ## Installation
 
 ```bash
-bun add -d @pathscale/rebuild-plugin-ui-css-purge
+bun add -d @pathscale/rsbuild-plugin-ui-css-purge
 ```
 
 ## Usage
 
-### Consumer project (postbuild purge)
+### Consumer Project
 
-Add to your build script in `package.json`:
+Add the postbuild purge after `rsbuild build`:
 
 ```json
 {
-  "scripts": {
-    "build": "rsbuild build && bunx rebuild-plugin-ui-css-purge --manifest node_modules/@pathscale/ui/dist/purge-manifest.json"
-  }
+	"scripts": {
+		"build": "rsbuild build && bunx rsbuild-plugin-ui-css-purge --dist dist --src src --manifest node_modules/@pathscale/ui/dist/purge-manifest.json"
+	}
 }
 ```
 
 Options:
 
 | Flag | Default | Description |
-|------|---------|-------------|
-| `--manifest` | (required) | Path to `purge-manifest.json` |
-| `--dist` | `./dist` | Directory containing built CSS files |
-| `--src` | `./src` | Consumer source directory to scan for JSX usage |
+| --- | --- | --- |
+| `--manifest` | required | Path to `purge-manifest.json`. |
+| `--dist` | `./dist` | Directory containing built CSS files. |
+| `--src` | `./src` | Consumer source directory to scan for JSX usage. |
 
-### Lib-side (manifest generation)
+### Lib-Side Manifest Generation
 
-Run from `@pathscale/ui` as a prebuild step:
+Run from `@pathscale/ui` as a build step:
 
 ```json
 {
-  "scripts": {
-    "prebuild": "bunx generate-manifest src/components --out dist/purge-manifest.json"
-  }
+	"scripts": {
+		"prebuild": "bunx generate-manifest src/components --out dist/purge-manifest.json"
+	}
 }
 ```
 
-This scans all `*.classnames.ts` files and produces the manifest that consumers use.
+This scans all `*.classes.ts` files and colocated component CSS files.
 
-## The `.classnames.ts` convention
+## The `*.classes.ts` Convention
 
-Every component in `@pathscale/ui` gets a sibling `.classnames.ts` file exporting a `CLASSES` const. The component imports it and references every class through `CLASSES.*`. This makes static analysis trivial — no JSX parsing needed to know which classes a component can produce.
+Every component should export a `CLASSES` object that names all component-owned classes. Tailwind utilities are filtered out so the manifest tracks ownership of durable component selectors, not generic utility classes.
 
 ```ts
-// Button.classnames.ts
+// button.classes.ts
 export const CLASSES = {
-  base: "inline-flex items-center justify-center rounded-md font-medium",
-  variant: {
-    primary: "bg-primary text-white",
-    secondary: "bg-secondary text-white",
-    ghost: "bg-transparent",
-  },
-  size: {
-    sm: "h-8 px-3 text-sm",
-    md: "h-10 px-4 text-base",
-    lg: "h-12 px-6 text-lg",
-  },
-  flag: {
-    isDisabled: "opacity-50 cursor-not-allowed",
-  },
+	base: "button inline-flex items-center",
+	variant: {
+		primary: "button--primary",
+		secondary: "button--secondary",
+	},
+	size: {
+		sm: "button--sm",
+		md: "button--md",
+	},
+	flag: {
+		disabled: "button--disabled",
+	},
+	attrs: {
+		open: { "data-open": "true" },
+	},
 } as const;
 ```
 
-**Slots:**
+Compound components use a nested shape:
 
-| Slot | Shape | Purpose |
-|------|-------|---------|
-| `base` | `string \| string[]` | Always rendered when the component mounts |
-| `variant`, `size`, `color` | `{ enumValue: classString }` | Enum prop value maps to classes |
-| `flag` | `{ propName: classString }` | Boolean prop name maps to classes |
-| `attrs` | `{ propName: { attr: value } }` | L2 attribute selectors tied to props |
-
-Compound components use a nested shape: `CLASSES = { Root: { base, ... }, Item: { base, ... } }`.
+```ts
+export const CLASSES = {
+	Root: { base: "modal" },
+	Panel: { base: "modal__panel" },
+} as const;
+```
 
 ## Programmatic API
 
-The scanner and safelist builder are also exported for custom integrations:
-
 ```ts
-import { scanConsumerSource, buildSafelists } from "@pathscale/rebuild-plugin-ui-css-purge";
+import {
+	buildSafelists,
+	purgeCssWithDatabase,
+	scanConsumerSource,
+} from "@pathscale/rsbuild-plugin-ui-css-purge";
 
 const usages = await scanConsumerSource("/path/to/consumer/src");
 const manifest = JSON.parse(await Bun.file("purge-manifest.json").text());
-const { classSafelist, attrSafelist } = buildSafelists(usages, manifest);
+const safelists = buildSafelists(usages, manifest);
+const result = purgeCssWithDatabase(css, manifest, safelists);
+
+console.log(result.report);
 ```
 
 ## Development
 
 ```bash
 bun install
-bun run build    # dist/index.js + dist/postbuild-purge.js + type declarations
+bun run test
+bun run build
 bun run lint
 bun run format
 ```
