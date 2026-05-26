@@ -5,9 +5,9 @@ export {
 	purgeCssWithDatabase,
 } from "./postbuild-purge";
 export {
-	extractUIImports,
-	extractJSXUsages,
 	buildSafelists,
+	extractJSXUsages,
+	extractUIImports,
 	scanConsumerSource,
 } from "./scan-consumer";
 export type {

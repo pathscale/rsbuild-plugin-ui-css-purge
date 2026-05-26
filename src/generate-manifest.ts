@@ -10,11 +10,17 @@
  */
 
 import { Glob } from "bun";
+import {
+	type AttrSelectorOperator,
+	type Declaration,
+	type Selector,
+	type SelectorComponent,
+	transform,
+	type Visitor,
+} from "lightningcss";
 import postcss from "postcss";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-
-type ClassValue = string | readonly string[];
 
 interface ComponentPurgeRecord {
 	key: string;
@@ -70,7 +76,7 @@ interface CssFacts {
 
 /** Matches Tailwind utility class prefixes — these should NOT appear as owned component classes. */
 const twPattern =
-	/^(-?)(flex|grid|gap|items|justify|self|place|order|col|row|auto|basis|grow|shrink|space|overflow|relative|absolute|fixed|sticky|static|block|inline|hidden|visible|invisible|z|inset|top|right|bottom|left|float|clear|isolate|object|aspect|container|columns|break|box|display|table|caption|border|rounded|outline|ring|shadow|opacity|mix|bg|from|via|to|text|font|leading|tracking|indent|align|whitespace|word|hyphens|content|list|decoration|underline|overline|line|no-underline|uppercase|lowercase|capitalize|normal|italic|not-italic|antialiased|subpixel|truncate|w|h|min|max|p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|size|scroll|snap|touch|select|resize|cursor|caret|pointer|will|appearance|accent|transition|duration|delay|ease|animate|scale|rotate|translate|skew|transform|origin|filter|blur|brightness|contrast|drop|grayscale|hue|invert|saturate|sepia|backdrop|sr|forced|print|motion|lg|md|sm|xl|2xl|dark|hover|focus|active|disabled|first|last|odd|even|group|peer)($|[-:\[.])/;
+	/^(-?)(flex|grid|gap|items|justify|self|place|order|col|row|auto|basis|grow|shrink|space|overflow|relative|absolute|fixed|sticky|static|block|inline|hidden|visible|invisible|z|inset|top|right|bottom|left|float|clear|isolate|object|aspect|container|columns|break|box|display|table|caption|border|rounded|outline|ring|shadow|opacity|mix|bg|from|via|to|text|font|leading|tracking|indent|align|whitespace|word|hyphens|content|list|decoration|underline|overline|line|no-underline|uppercase|lowercase|capitalize|normal|italic|not-italic|antialiased|subpixel|truncate|w|h|min|max|p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|size|scroll|snap|touch|select|resize|cursor|caret|pointer|will|appearance|accent|transition|duration|delay|ease|animate|scale|rotate|translate|skew|transform|origin|filter|blur|brightness|contrast|drop|grayscale|hue|invert|saturate|sepia|backdrop|sr|forced|print|motion|lg|md|sm|xl|2xl|dark|hover|focus|active|disabled|first|last|odd|even|group|peer)($|[-:[.])/;
 
 function isTailwindUtility(cls: string): boolean {
 	return twPattern.test(cls);
@@ -196,40 +202,85 @@ function emptyCssFacts(): CssFacts {
 	};
 }
 
+const AnimationNameKeywords = new Set(["none", "initial", "inherit", "unset"]);
 async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 	const facts = emptyCssFacts();
 	const glob = new Glob("**/*.css");
+	const visitor: Visitor<never> = {
+		Rule(rule) {
+			if (rule.type === "keyframes") {
+				const { name } = rule.value;
+				facts.keyframes.declared.push(name.value);
+			}
+		},
+
+		Declaration(decl) {
+			const animationNames = (decl: Declaration) => {
+				switch (decl.property) {
+					case "animation":
+						return decl.value.map((item) => item.name);
+					case "animation-name":
+						return decl.value;
+					default:
+						return [];
+				}
+			};
+
+			for (const name of animationNames(decl)) {
+				if (name.type === "none") continue;
+				if (AnimationNameKeywords.has(name.value)) continue;
+				facts.keyframes.referenced.push(name.value);
+			}
+
+			// "animation" with var(), unparsed due to var() interfering with arg position detection
+			(() => {
+				// check if unparsed animation
+				if (decl.property !== "unparsed") return;
+				if (decl.value.propertyId.property !== "animation") return;
+				if (decl.value.value.length === 0) return;
+				// extract animation name
+				const token = decl.value.value[0];
+				if (typeof token.value !== "object") return;
+				if (!("type" in token.value)) return;
+				if (token.value.type !== "ident") return;
+				const { value } = token.value;
+				// add animation name
+				if (AnimationNameKeywords.has(value)) return;
+				facts.keyframes.referenced.push(value);
+			})();
+
+			// variable declarations
+			if (decl.property === "custom") {
+				const { name } = decl.value;
+				if (name.startsWith("--")) facts.cssVars.declared.push(name);
+			}
+		},
+
+		// var() statements
+		Variable(variable) {
+			facts.cssVars.referenced.push(variable.name.ident);
+		},
+
+		Selector(selector) {
+			facts.attributeSelectors.push(...extractAttrsFromSelector(selector));
+		},
+	};
 
 	for await (const relPath of glob.scan({ cwd: componentDir })) {
 		const css = await Bun.file(joinPath(componentDir, relPath)).text();
+
+		transform({
+			filename: relPath,
+			code: Buffer.from(css),
+			minify: false,
+			errorRecovery: true,
+			visitor,
+		});
+
+		// TODO: stringify Selector from lightningcss directly
 		const root = postcss.parse(css);
-
 		root.walkRules((rule) => {
-			for (const selector of rule.selectors) {
-				facts.selectors.push(selector);
-				for (const attr of extractAttrsFromSelector(selector)) {
-					facts.attributeSelectors.push(attr);
-				}
-			}
-		});
-
-		root.walkDecls((decl) => {
-			if (decl.prop.startsWith("--")) facts.cssVars.declared.push(decl.prop);
-			for (const ref of decl.value.matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)/g)) {
-				facts.cssVars.referenced.push(ref[1]);
-			}
-			if (/^animation(-name)?$/.test(decl.prop)) {
-				for (const part of decl.value.split(",")) {
-					const name = part.trim().split(/\s+/)[0];
-					if (name && !["none", "initial", "inherit", "unset"].includes(name)) {
-						facts.keyframes.referenced.push(name);
-					}
-				}
-			}
-		});
-
-		root.walkAtRules("keyframes", (atRule) => {
-			facts.keyframes.declared.push(atRule.params.trim());
+			for (const selector of rule.selectors) facts.selectors.push(selector);
 		});
 	}
 
@@ -247,14 +298,48 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 	};
 }
 
-function extractAttrsFromSelector(selector: string): string[] {
-	const matches = selector.matchAll(
-		/\[(data-[a-zA-Z0-9_-]+|aria-[a-zA-Z0-9_-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\]/g,
-	);
-	return [...matches].map((m) => {
-		const value = m[2] ?? m[3] ?? m[4];
-		return value === undefined ? `[${m[1]}]` : `[${m[1]}="${value.trim()}"]`;
-	});
+function extractAttrsFromSelector(selector: Selector) {
+	const attrs: string[] = [];
+	const OperatorMap: Record<AttrSelectorOperator, string> = {
+		equal: "=",
+		includes: "~=",
+		"dash-match": "|=",
+		prefix: "^=",
+		suffix: "$=",
+		substring: "*=",
+	};
+
+	const stringify = (comp: SelectorComponent & { type: "attribute" }) => {
+		const { name, operation } = comp;
+		if (!operation) return `[${name}]`;
+		const { operator, value } = operation;
+		const op = OperatorMap[operator];
+		return `[${name}${op}"${value}"]`;
+	};
+
+	const extract = (sel: Selector) => {
+		const prefixes = ["data-", "aria-"];
+		for (const comp of sel) {
+			if (comp.type !== "attribute") continue;
+			if (prefixes.every((p) => !comp.name.startsWith(p))) continue;
+			attrs.push(stringify(comp));
+		}
+	};
+
+	const selectors = (comp: SelectorComponent): Selector[] => {
+		if (!("kind" in comp)) return [];
+		if (comp.kind === "host") return comp.selectors ? [comp.selectors] : [];
+		else if ("selectors" in comp) return comp.selectors ?? [];
+		else if ("of" in comp) return comp.of ?? [];
+		return [];
+	};
+
+	// From top level
+	extract(selector);
+	// From pseudo classes
+	for (const c of selector) for (const s of selectors(c)) extract(s);
+
+	return attrs;
 }
 
 function createRecord(

@@ -21,3 +21,5 @@ if (exitCode !== 0) {
 console.log(
 	"Build complete: dist/index.js + dist/postbuild-purge.js + type declarations",
 );
+
+export {};

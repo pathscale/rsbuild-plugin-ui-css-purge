@@ -1,7 +1,7 @@
+import swc from "@swc/core";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import swc from "@swc/core";
 import { cleanUnusedVars, purgeCssWithDatabase } from "../src/postbuild-purge";
 import {
 	type PropUsage,
@@ -146,7 +146,7 @@ test("spread props keep all variants for that component", () => {
 });
 
 test("imported wrappers without direct JSX keep all variants conservatively", async () => {
-	const tmp = await mkdtemp("/private/tmp/ui-css-purge-wrapper-");
+	const tmp = await mkdtemp("/tmp/ui-css-purge-wrapper-");
 	try {
 		const src = join(tmp, "src");
 		await mkdir(src, { recursive: true });
@@ -191,7 +191,7 @@ test("CSS vars are removed only after selector purge proves them unreferenced", 
 });
 
 test("postbuild CLI runs under Bun", async () => {
-	const tmp = await mkdtemp("/private/tmp/ui-css-purge-");
+	const tmp = await mkdtemp("/tmp/ui-css-purge-");
 	try {
 		const src = join(tmp, "src");
 		const dist = join(tmp, "dist");

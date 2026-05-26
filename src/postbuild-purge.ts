@@ -15,15 +15,15 @@
 
 import { Glob } from "bun";
 import { transform } from "lightningcss";
-import postcss from "postcss";
 import type { AtRule, Rule } from "postcss";
-import { buildSafelists, scanConsumerSource } from "./scan-consumer";
+import postcss from "postcss";
 import type {
 	ComponentPurgeRecord,
 	LegacyComponentManifest,
 	PurgeManifest,
 	Safelists,
 } from "./scan-consumer";
+import { buildSafelists, scanConsumerSource } from "./scan-consumer";
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 

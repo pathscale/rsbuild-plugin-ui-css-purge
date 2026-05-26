@@ -10,7 +10,7 @@
 		"declarationDir": "dist",
 		"outDir": "dist",
 		"rootDir": "src",
-		"types": ["bun-types"]
+		"types": ["bun"]
 	},
 	"include": ["src"]
 }
