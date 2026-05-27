@@ -13,6 +13,7 @@ import { Glob } from "bun";
 import {
 	type AnimationName,
 	type AttrSelectorOperator,
+	type Combinator,
 	type Declaration,
 	type Selector,
 	type SelectorComponent,
@@ -20,7 +21,6 @@ import {
 	type UnparsedProperty,
 	type Visitor,
 } from "lightningcss";
-import postcss from "postcss";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -267,14 +267,15 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 		},
 
 		Selector(selector) {
-			facts.attributeSelectors.push(...extractAttrsFromSelector(selector));
+			facts.selectors.push(stringifySelector(selector));
+			const attrs = extractSelectorAttrs(selector).map(stringifySelectorAttr);
+			facts.attributeSelectors.push(...attrs);
 		},
 	};
 
 	for await (const relPath of glob.scan({ cwd: componentDir })) {
 		const css = await Bun.file(joinPath(componentDir, relPath)).text();
-
-		transform({
+		const normalized = transform({
 			filename: relPath,
 			code: Buffer.from(css),
 			minify: false,
@@ -282,11 +283,8 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 			visitor,
 		});
 
-		// TODO: stringify Selector from lightningcss directly
-		const root = postcss.parse(css);
-		root.walkRules((rule) => {
-			for (const selector of rule.selectors) facts.selectors.push(selector);
-		});
+		// TODO: might be unnecesary if we don't need exact selectors (e.g. whitespace) or if we switch to lightningcss in purger
+		await Bun.write(joinPath(componentDir, relPath), normalized.code);
 	}
 
 	return {
@@ -303,48 +301,101 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 	};
 }
 
-function extractAttrsFromSelector(selector: Selector) {
-	const attrs: string[] = [];
-	const OperatorMap: Record<AttrSelectorOperator, string> = {
-		equal: "=",
-		includes: "~=",
-		"dash-match": "|=",
-		prefix: "^=",
-		suffix: "$=",
-		substring: "*=",
-	};
-
-	const stringify = (comp: SelectorComponent & { type: "attribute" }) => {
-		const { name, operation } = comp;
-		if (!operation) return `[${name}]`;
-		const { operator, value } = operation;
-		const op = OperatorMap[operator];
-		return `[${name}${op}"${value}"]`;
-	};
-
+type SelectorAttribute = Extract<SelectorComponent, { type: "attribute" }>;
+function extractSelectorAttrs(selector: Selector): SelectorAttribute[] {
+	const attrs: SelectorAttribute[] = [];
 	const extract = (sel: Selector) => {
 		const prefixes = ["data-", "aria-"];
 		for (const comp of sel) {
 			if (comp.type !== "attribute") continue;
 			if (prefixes.every((p) => !comp.name.startsWith(p))) continue;
-			attrs.push(stringify(comp));
+			attrs.push(comp);
 		}
-	};
-
-	const selectors = (comp: SelectorComponent): Selector[] => {
-		if (!("kind" in comp)) return [];
-		if (comp.kind === "host") return comp.selectors ? [comp.selectors] : [];
-		if ("selectors" in comp) return comp.selectors ?? [];
-		if ("of" in comp) return comp.of ?? [];
-		return [];
 	};
 
 	// From top level
 	extract(selector);
 	// From pseudo classes
-	for (const c of selector) for (const s of selectors(c)) extract(s);
+	for (const c of selector) for (const s of extractSelectors(c)) extract(s);
 
 	return attrs;
+}
+
+function extractSelectors(comp: SelectorComponent): Selector[] {
+	if ("of" in comp) return comp.of ?? [];
+	if ("kind" in comp && comp.kind === "host")
+		return [comp.selectors].filter((v) => !!v);
+	if ("selectors" in comp) return comp.selectors ?? [];
+	return [];
+}
+
+const OperatorMap: Record<AttrSelectorOperator, string> = {
+	equal: "=",
+	includes: "~=",
+	"dash-match": "|=",
+	prefix: "^=",
+	suffix: "$=",
+	substring: "*=",
+} as const;
+
+const CombinatorMap: Record<Combinator, string> = {
+	child: " > ",
+	descendant: " ",
+	"next-sibling": " + ",
+	"later-sibling": " ~ ",
+	"pseudo-element": "::",
+	"slot-assignment": "::slotted",
+	part: "::part",
+	"deep-descendant": " >>> ",
+	deep: " /deep/ ",
+} as const;
+
+function stringifySelector(selector: Selector): string {
+	return selector
+		.map((comp) => {
+			switch (comp.type) {
+				case "universal":
+					return "*";
+				case "nesting":
+					return "&";
+				case "type":
+					return comp.name;
+				case "id":
+					return `#${comp.name}`;
+				case "class":
+					return `.${comp.name}`;
+				case "combinator":
+					return CombinatorMap[comp.value];
+				case "attribute":
+					return stringifySelectorAttr(comp);
+				case "namespace":
+					if (comp.kind === "named") return `${comp.prefix}|`;
+					if (comp.kind === "any") return "*|";
+					return "|";
+				case "pseudo-class": {
+					const selectors = extractSelectors(comp).map(stringifySelector);
+					if (comp.kind === "custom") selectors.push(comp.name);
+					if (comp.kind === "dir") selectors.push(comp.direction);
+					if (selectors.length === 0) return `:${comp.kind}`;
+					return `:${comp.kind}(${selectors.join(", ")})`;
+				}
+				case "pseudo-element": {
+					if (comp.kind === "custom") return `::${comp.name}`;
+					if (/^(webkit|moz|ms|o)-/.test(comp.kind)) return `::-${comp.kind}`;
+					return `::${comp.kind}`;
+				}
+				default:
+					return "";
+			}
+		})
+		.join("");
+}
+
+function stringifySelectorAttr(attr: SelectorAttribute): string {
+	const { name, operation } = attr;
+	if (!operation) return `[${name}]`;
+	const { operator, value } = operation;
+	return `[${name}${OperatorMap[operator]}"${value}"]`;
 }
 
 function createRecord(
