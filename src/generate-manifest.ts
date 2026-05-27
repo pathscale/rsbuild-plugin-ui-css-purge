@@ -320,10 +320,10 @@ function extractSelectorAttrs(selector: Selector): SelectorAttribute[] {
 }
 
 function extractSelectors(comp: SelectorComponent): Selector[] {
-	if ("of" in comp) return comp.of ?? [];
 	if ("kind" in comp && comp.kind === "host")
-		return [comp.selectors].filter((v) => !!v);
-	if ("selectors" in comp) return comp.selectors ?? [];
+		return comp.selectors ? [comp.selectors] : [];
+	if ("selectors" in comp) return comp.selectors;
+	if ("selector" in comp) return [comp.selector];
 	return [];
 }
 
@@ -349,7 +349,6 @@ const CombinatorMap: Record<Combinator, string> = {
 } as const;
 
 // TODO: use ToCSS from napi-rs module or use transform with dummy rule or use pure Rust
-// TODO: handle nth-* selectors
 const ShortPseudo = new Set(["before", "after", "first-letter", "first-line"]);
 function stringifySelector(selector: Selector): string {
 	return selector
@@ -374,11 +373,12 @@ function stringifySelector(selector: Selector): string {
 					if (comp.kind === "any") return "*|";
 					return "|";
 				case "pseudo-class": {
-					const selectors = extractSelectors(comp).map(stringifySelector);
-					if (comp.kind === "custom") selectors.push(comp.name);
-					if ("direction" in comp) selectors.push(comp.direction);
-					if (selectors.length === 0) return `:${comp.kind}`;
-					return `:${comp.kind}(${selectors.join(", ")})`;
+					if ("a" in comp && "b" in comp) return stringifyNth(comp);
+					const s = extractSelectors(comp).map(stringifySelector);
+					if (comp.kind === "custom") s.push(comp.name);
+					if ("direction" in comp) s.push(comp.direction);
+					if (s.length === 0) return `:${comp.kind}`;
+					return `:${comp.kind}(${s.join(", ")})`;
 				}
 				case "pseudo-element": {
 					const p = ShortPseudo.has(comp.kind) ? ":" : "::";
@@ -398,6 +398,26 @@ function stringifySelectorAttr(attr: SelectorAttribute): string {
 	if (!operation) return `[${name}]`;
 	const { operator, value } = operation;
 	return `[${name}${OperatorMap[operator]}"${value}"]`;
+}
+
+type Nth = Extract<SelectorComponent, { a: number; b: number }>;
+function stringifyNth(nth: Nth): string {
+	const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
+	const anb = (a: number, b: number): string => {
+		if (a === 0 && b === 0) return "0";
+		if (a === 1 && b === 0) return "n";
+		if (a === -1 && b === 0) return "-n";
+		if (b === 0) return `${a}n`;
+		if (a === 2 && b === 1) return "odd";
+		if (a === 0) return b.toString();
+		if (a === 1) return `n${signed(b)}`;
+		if (a === -1) return `-n${signed(b)}`;
+		return `${a}n${signed(b)}`;
+	};
+	let rule = anb(nth.a, nth.b);
+	const s = (("of" in nth && nth.of) || []).map(stringifySelector);
+	if (s.length > 0) rule += ` of ${s.join(", ")}`;
+	return `:${nth.kind}(${rule})`;
 }
 
 function createRecord(
