@@ -275,7 +275,7 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 
 	for await (const relPath of glob.scan({ cwd: componentDir })) {
 		const css = await Bun.file(joinPath(componentDir, relPath)).text();
-		const normalized = transform({
+		transform({
 			filename: relPath,
 			code: Buffer.from(css),
 			minify: false,
@@ -283,9 +283,6 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 			errorRecovery: true,
 			visitor,
 		});
-
-		// TODO: might be unnecesary if we don't need exact selectors (e.g. whitespace) or if we switch to lightningcss in purger
-		await Bun.write(joinPath(componentDir, relPath), normalized.code);
 	}
 
 	return {
