@@ -11,11 +11,13 @@
 
 import { Glob } from "bun";
 import {
+	type AnimationName,
 	type AttrSelectorOperator,
 	type Declaration,
 	type Selector,
 	type SelectorComponent,
 	transform,
+	type UnparsedProperty,
 	type Visitor,
 } from "lightningcss";
 import postcss from "postcss";
@@ -215,12 +217,31 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 		},
 
 		Declaration(decl) {
-			const animationNames = (decl: Declaration) => {
+			// "animation" with var(), unparsed due to var() interfering with arg position detection
+			const animationNamesUnparsed = (p: UnparsedProperty): AnimationName[] => {
+				let valid = true;
+				const names: AnimationName[] = [];
+				if (p.propertyId.property !== "animation") return names;
+				for (const { value: token } of p.value) {
+					if (!(typeof token === "object" && "type" in token)) continue;
+					if (token.type === "comma") valid = true; // name only appears after comma or at start
+					if (token.type === "comma" || token.type === "white-space") continue;
+					if (valid && (token.type === "ident" || token.type === "string")) {
+						names.push(token);
+					}
+					valid = false;
+				}
+				return names;
+			};
+
+			const animationNames = (decl: Declaration): AnimationName[] => {
 				switch (decl.property) {
 					case "animation":
 						return decl.value.map((item) => item.name);
 					case "animation-name":
 						return decl.value;
+					case "unparsed":
+						return animationNamesUnparsed(decl.value);
 					default:
 						return [];
 				}
@@ -232,28 +253,12 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 				facts.keyframes.referenced.push(name.value);
 			}
 
-			// "animation" with var(), unparsed due to var() interfering with arg position detection
-			(() => {
-				// check if unparsed animation
-				if (decl.property !== "unparsed") return;
-				if (decl.value.propertyId.property !== "animation") return;
-				if (decl.value.value.length === 0) return;
-				// extract animation name
-				const token = decl.value.value[0];
-				if (typeof token.value !== "object") return;
-				if (!("type" in token.value)) return;
-				if (token.value.type !== "ident") return;
-				const { value } = token.value;
-				// add animation name
-				if (AnimationNameKeywords.has(value)) return;
-				facts.keyframes.referenced.push(value);
-			})();
-
 			// variable declarations
-			if (decl.property === "custom") {
-				const { name } = decl.value;
-				if (name.startsWith("--")) facts.cssVars.declared.push(name);
-			}
+			(() => {
+				if (decl.property !== "custom") return;
+				if (!decl.value.name.startsWith("--")) return;
+				facts.cssVars.declared.push(decl.value.name);
+			})();
 		},
 
 		// var() statements
@@ -329,8 +334,8 @@ function extractAttrsFromSelector(selector: Selector) {
 	const selectors = (comp: SelectorComponent): Selector[] => {
 		if (!("kind" in comp)) return [];
 		if (comp.kind === "host") return comp.selectors ? [comp.selectors] : [];
-		else if ("selectors" in comp) return comp.selectors ?? [];
-		else if ("of" in comp) return comp.of ?? [];
+		if ("selectors" in comp) return comp.selectors ?? [];
+		if ("of" in comp) return comp.of ?? [];
 		return [];
 	};
 
