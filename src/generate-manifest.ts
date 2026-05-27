@@ -279,6 +279,7 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 			filename: relPath,
 			code: Buffer.from(css),
 			minify: false,
+			sourceMap: false,
 			errorRecovery: true,
 			visitor,
 		});
@@ -343,13 +344,16 @@ const CombinatorMap: Record<Combinator, string> = {
 	descendant: " ",
 	"next-sibling": " + ",
 	"later-sibling": " ~ ",
-	"pseudo-element": "::",
-	"slot-assignment": "::slotted",
-	part: "::part",
-	"deep-descendant": " >>> ",
 	deep: " /deep/ ",
+	"deep-descendant": " >>> ",
+	"pseudo-element": "::",
+	part: "::part",
+	"slot-assignment": "::slotted",
 } as const;
 
+// TODO: use ToCSS from napi-rs module or use transform with dummy rule or use pure Rust
+// TODO: handle nth-* selectors
+const ShortPseudo = new Set(["before", "after", "first-letter", "first-line"]);
 function stringifySelector(selector: Selector): string {
 	return selector
 		.map((comp) => {
@@ -375,14 +379,15 @@ function stringifySelector(selector: Selector): string {
 				case "pseudo-class": {
 					const selectors = extractSelectors(comp).map(stringifySelector);
 					if (comp.kind === "custom") selectors.push(comp.name);
-					if (comp.kind === "dir") selectors.push(comp.direction);
+					if ("direction" in comp) selectors.push(comp.direction);
 					if (selectors.length === 0) return `:${comp.kind}`;
 					return `:${comp.kind}(${selectors.join(", ")})`;
 				}
 				case "pseudo-element": {
-					if (comp.kind === "custom") return `::${comp.name}`;
-					if (/^(webkit|moz|ms|o)-/.test(comp.kind)) return `::-${comp.kind}`;
-					return `::${comp.kind}`;
+					const p = ShortPseudo.has(comp.kind) ? ":" : "::";
+					if (comp.kind === "custom") return `${p}${comp.name}`;
+					if (/^(webkit|moz|ms|o)-/.test(comp.kind)) return `${p}-${comp.kind}`;
+					return `${p}${comp.kind}`;
 				}
 				default:
 					return "";
