@@ -382,6 +382,7 @@ interface VarCleanupResult {
 	removed: number;
 }
 
+// TODO: potentially reduce parsing amount
 function cleanUnusedVarsWithReport(
 	css: string,
 	externallyReferencedVars: Set<string>,

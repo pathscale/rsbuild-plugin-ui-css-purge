@@ -81,6 +81,7 @@ interface CssFacts {
 const twPattern =
 	/^(-?)(flex|grid|gap|items|justify|self|place|order|col|row|auto|basis|grow|shrink|space|overflow|relative|absolute|fixed|sticky|static|block|inline|hidden|visible|invisible|z|inset|top|right|bottom|left|float|clear|isolate|object|aspect|container|columns|break|box|display|table|caption|border|rounded|outline|ring|shadow|opacity|mix|bg|from|via|to|text|font|leading|tracking|indent|align|whitespace|word|hyphens|content|list|decoration|underline|overline|line|no-underline|uppercase|lowercase|capitalize|normal|italic|not-italic|antialiased|subpixel|truncate|w|h|min|max|p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|size|scroll|snap|touch|select|resize|cursor|caret|pointer|will|appearance|accent|transition|duration|delay|ease|animate|scale|rotate|translate|skew|transform|origin|filter|blur|brightness|contrast|drop|grayscale|hue|invert|saturate|sepia|backdrop|sr|forced|print|motion|lg|md|sm|xl|2xl|dark|hover|focus|active|disabled|first|last|odd|even|group|peer)($|[-:[.])/;
 
+// TODO: possibly find a more reliable way of checking
 function isTailwindUtility(cls: string): boolean {
 	return twPattern.test(cls);
 }
@@ -375,7 +376,7 @@ const WSElementMap: Record<WebKitScrollbarPseudoElement, string> = {
 	resizer: "::-webkit-resizer",
 } as const;
 
-// TODO: use ToCSS from napi-rs module or use transform with dummy rule or use pure Rust
+// TODO: use ToCSS from napi-rs module | use transform with dummy rule | use pure Rust | do not rely on stringified selectors and extract what we need
 const ShortPseudo = new Set(["before", "after", "first-letter", "first-line"]);
 function stringifySelector(selector: Selector): string {
 	const selectors = (p: Pseudo) =>

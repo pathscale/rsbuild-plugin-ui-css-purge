@@ -143,18 +143,25 @@ function joinPath(base: string, rel: string): string {
 }
 
 function canonicalImportedName(spec: unknown, source: string): string | null {
+	const importedName =
+		getPathString(spec, "imported", "value") ??
+		getPathString(spec, "local", "value") ??
+		null;
+
+	const deep = (c: string, t?: string): string | null => {
+		if (t !== "ImportSpecifier") return c;
+		if (!importedName) return null;
+		if (importedName === c) return c;
+		return `${c}.${importedName}`;
+	};
+
 	const type = getString(spec, "type");
 	if (getBoolean(spec, "isTypeOnly")) return null;
 	const deepComponent = componentFromDeepImport(source);
-	if (deepComponent) return deepComponent;
+	if (deepComponent) return deep(deepComponent, type);
 
-	if (source === "@pathscale/ui" && type === "ImportSpecifier") {
-		return (
-			getPathString(spec, "imported", "value") ??
-			getPathString(spec, "local", "value") ??
-			null
-		);
-	}
+	if (source === "@pathscale/ui" && type === "ImportSpecifier")
+		return importedName;
 
 	return null;
 }
