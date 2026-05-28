@@ -341,7 +341,6 @@ function extractStrings(ps: Pseudo): string[] {
 	if ("state" in ps) return [ps.state];
 	if ("names" in ps) return ps.names;
 	if ("identifier" in ps) return [ps.identifier];
-	if ("value" in ps) return [ps.value];
 	return [];
 }
 
@@ -406,6 +405,7 @@ function stringifySelector(selector: Selector): string {
 				case "pseudo-class": {
 					const s = selectors(comp);
 					if (comp.kind === "custom") return `:${comp.name}`;
+					if (comp.kind === "webkit-scrollbar") return `:${comp.value}`;
 					if ("a" in comp && "b" in comp) return stringifyNth(comp);
 					if (s.length === 0) return `:${comp.kind}`;
 					return `:${comp.kind}(${s.join(", ")})`;
