@@ -20,6 +20,7 @@ import {
 	transform,
 	type UnparsedProperty,
 	type Visitor,
+	type WebKitScrollbarPseudoElement,
 } from "lightningcss";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -319,11 +320,24 @@ function extractSelectorAttrs(selector: Selector): SelectorAttribute[] {
 	return attrs;
 }
 
-function extractSelectors(comp: SelectorComponent): Selector[] {
-	if ("kind" in comp && comp.kind === "host")
-		return comp.selectors ? [comp.selectors] : [];
-	if ("selectors" in comp) return comp.selectors;
-	if ("selector" in comp) return [comp.selector];
+type PseudoClass = Extract<SelectorComponent, { type: "pseudo-class" }>;
+type PseudoElement = Extract<SelectorComponent, { type: "pseudo-element" }>;
+type Pseudo = PseudoClass | PseudoElement;
+function extractSelectors(ps: Pseudo): Selector[] {
+	if (ps.kind === "host") return ps.selectors ? [ps.selectors] : [];
+	if ("selectors" in ps) return ps.selectors;
+	if ("selector" in ps) return [ps.selector];
+	return [];
+}
+
+function extractStrings(ps: Pseudo): string[] {
+	if (Array.isArray(ps.type)) return ps.type;
+	if ("languages" in ps) return ps.languages;
+	if ("direction" in ps) return [ps.direction];
+	if ("state" in ps) return [ps.state];
+	if ("names" in ps) return ps.names;
+	if ("identifier" in ps) return [ps.identifier];
+	if ("value" in ps) return [ps.value];
 	return [];
 }
 
@@ -348,9 +362,22 @@ const CombinatorMap: Record<Combinator, string> = {
 	"slot-assignment": "::slotted",
 } as const;
 
+const WSElementMap: Record<WebKitScrollbarPseudoElement, string> = {
+	scrollbar: "::-webkit-scrollbar",
+	button: "::-webkit-scrollbar-button",
+	track: "::-webkit-scrollbar-track",
+	"track-piece": "::-webkit-scrollbar-track-piece",
+	thumb: "::-webkit-scrollbar-thumb",
+	corner: "::-webkit-scrollbar-corner",
+	resizer: "::-webkit-resizer",
+} as const;
+
 // TODO: use ToCSS from napi-rs module or use transform with dummy rule or use pure Rust
 const ShortPseudo = new Set(["before", "after", "first-letter", "first-line"]);
 function stringifySelector(selector: Selector): string {
+	const selectors = (p: Pseudo) =>
+		extractSelectors(p).map(stringifySelector).concat(extractStrings(p));
+
 	return selector
 		.map((comp) => {
 			switch (comp.type) {
@@ -373,18 +400,20 @@ function stringifySelector(selector: Selector): string {
 					if (comp.kind === "any") return "*|";
 					return "|";
 				case "pseudo-class": {
+					const s = selectors(comp);
+					if (comp.kind === "custom") return `:${comp.name}`;
 					if ("a" in comp && "b" in comp) return stringifyNth(comp);
-					const s = extractSelectors(comp).map(stringifySelector);
-					if (comp.kind === "custom") s.push(comp.name);
-					if ("direction" in comp) s.push(comp.direction);
 					if (s.length === 0) return `:${comp.kind}`;
 					return `:${comp.kind}(${s.join(", ")})`;
 				}
 				case "pseudo-element": {
+					const s = selectors(comp);
 					const p = ShortPseudo.has(comp.kind) ? ":" : "::";
 					if (comp.kind === "custom") return `${p}${comp.name}`;
-					if (/^(webkit|moz|ms|o)-/.test(comp.kind)) return `${p}-${comp.kind}`;
-					return `${p}${comp.kind}`;
+					if (comp.kind === "webkit-scrollbar") return WSElementMap[comp.value];
+					if (comp.kind === "part") return `${p}${comp.kind}(${s.join(" ")})`;
+					if (s.length === 0) return `${p}${comp.kind}`;
+					return `${p}${comp.kind}(${s.join(", ")})`;
 				}
 				default:
 					return "";
