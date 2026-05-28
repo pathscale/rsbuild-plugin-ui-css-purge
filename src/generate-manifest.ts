@@ -303,6 +303,8 @@ async function scanCssFacts(componentDir: string): Promise<CssFacts> {
 type SelectorAttribute = Extract<SelectorComponent, { type: "attribute" }>;
 function extractSelectorAttrs(selector: Selector): SelectorAttribute[] {
 	const attrs: SelectorAttribute[] = [];
+	const pseudo = (c: SelectorComponent) =>
+		c.type === "pseudo-class" || c.type === "pseudo-element";
 	const extract = (sel: Selector) => {
 		const prefixes = ["data-", "aria-"];
 		for (const comp of sel) {
@@ -314,8 +316,9 @@ function extractSelectorAttrs(selector: Selector): SelectorAttribute[] {
 
 	// From top level
 	extract(selector);
-	// From pseudo classes
-	for (const c of selector) for (const s of extractSelectors(c)) extract(s);
+	// From pseudo classes/elements
+	const ps = selector.filter(pseudo);
+	for (const p of ps) for (const s of extractSelectors(p)) extract(s);
 
 	return attrs;
 }
