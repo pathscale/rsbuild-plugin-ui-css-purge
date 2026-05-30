@@ -25,9 +25,9 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@swc/core": "^1.15.24",
+		"@swc/core": "^1.15.40",
 		"lightningcss": "^1.32.0",
-		"postcss": "^8.5.9"
+		"postcss": "^8.5.15"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
