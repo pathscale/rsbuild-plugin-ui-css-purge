@@ -375,8 +375,14 @@ const WSElementMap: Record<WebKitScrollbarPseudoElement, string> = {
 	resizer: "::-webkit-resizer",
 } as const;
 
+const ShortElements: Set<PseudoElement["kind"]> = new Set([
+	"before",
+	"after",
+	"first-letter",
+	"first-line",
+]);
+
 // TODO: use ToCSS from napi-rs module | use transform with dummy rule | use pure Rust | do not rely on stringified selectors and extract what we need
-const ShortPseudo = new Set(["before", "after", "first-letter", "first-line"]);
 function stringifySelector(selector: Selector): string {
 	const selectors = (p: Pseudo) =>
 		extractSelectors(p).map(stringifySelector).concat(extractStrings(p));
@@ -412,7 +418,7 @@ function stringifySelector(selector: Selector): string {
 				}
 				case "pseudo-element": {
 					const s = selectors(comp);
-					const p = ShortPseudo.has(comp.kind) ? ":" : "::";
+					const p = ShortElements.has(comp.kind) ? ":" : "::";
 					if (comp.kind === "custom") return `${p}${comp.name}`;
 					if (comp.kind === "webkit-scrollbar") return WSElementMap[comp.value];
 					if (comp.kind === "part") return `${p}${comp.kind}(${s.join(" ")})`;
