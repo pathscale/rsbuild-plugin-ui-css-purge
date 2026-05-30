@@ -604,18 +604,18 @@ if (import.meta.main) {
 	main();
 }
 
-export {
-	buildSafelists,
-	extractJSXUsages,
-	extractUIImports,
-	scanConsumerSource,
-};
 export type {
-	LegacyComponentManifest as ComponentManifest,
 	ComponentPurgeRecord,
+	LegacyComponentManifest as ComponentManifest,
 	LegacyComponentManifest,
 	PropUsage,
 	PurgeDatabaseV2,
 	PurgeManifest,
 	Safelists,
+};
+export {
+	buildSafelists,
+	extractJSXUsages,
+	extractUIImports,
+	scanConsumerSource,
 };

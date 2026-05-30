@@ -541,15 +541,15 @@ if (import.meta.main) {
 	main();
 }
 
-export {
-	cleanUnusedVars,
-	cleanUnusedVarsWithReport,
-	normalizePurgeDatabase,
-	purgeCssWithDatabase,
-};
 export type {
 	NormalizedPurgeDatabase,
 	PurgeResult,
 	SelectorPurgeReport,
 	VarCleanupResult,
+};
+export {
+	cleanUnusedVars,
+	cleanUnusedVarsWithReport,
+	normalizePurgeDatabase,
+	purgeCssWithDatabase,
 };
