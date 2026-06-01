@@ -158,8 +158,7 @@ function canonicalImportedName(spec: unknown, source: string): string | null {
 	const type = getString(spec, "type");
 	if (getBoolean(spec, "isTypeOnly")) return null;
 	const deepComponent = componentFromDeepImport(source);
-	// if (deepComponent) return deep(deepComponent, type);
-	if (deepComponent) return deepComponent;
+	if (deepComponent) return deep(deepComponent, type);
 
 	if (source === "@pathscale/ui" && type === "ImportSpecifier")
 		return importedName;
