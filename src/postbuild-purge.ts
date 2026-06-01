@@ -230,12 +230,8 @@ function selectorDecision(
 	| "keep-unknown"
 	| "remove-unused-component"
 	| "remove-unused-variant" {
-	const attrs = extractAttrsFromSelector(selector);
-	if (attrs.some((attr) => safelists.attrSafelist.has(attr))) {
-		return "keep-known";
-	}
-
 	const classes = extractClassesFromSelector(selector);
+	const attrs = extractAttrsFromSelector(selector);
 	if (classes.length === 0) return "keep-unknown";
 
 	const hasUnknownClass = classes.some((cls) => !owners.has(cls));
@@ -250,6 +246,7 @@ function selectorDecision(
 
 	if (!hasUsedOwner) return "remove-unused-component";
 
+	if (attrs.length > 0) return "keep-known";
 	if (classes.every((cls) => isClassAllowed(cls, owners, safelists))) {
 		return "keep-known";
 	}
