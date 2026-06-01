@@ -277,14 +277,17 @@ function canonicalComponentFromJsx(
 	const namespaceComponent = bindings.namespaces.get(root);
 	if (bindings.namespaces.has(root)) {
 		if (namespaceComponent) {
-			return [namespaceComponent, ...members].join(".");
+			const lower = members.map((m) => m.toLowerCase());
+			return [namespaceComponent, ...lower].join(".");
 		}
 		return members.join(".") || null;
 	}
 
 	const rootComponent = bindings.components.get(root);
 	if (!rootComponent) return null;
-	return [rootComponent, ...members].join(".");
+
+	const lower = members.map((m) => m.toLowerCase());
+	return [rootComponent, ...lower].join(".");
 }
 
 /** Extract JSX usages of UI components. */
