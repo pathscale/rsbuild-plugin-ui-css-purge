@@ -158,7 +158,8 @@ function canonicalImportedName(spec: unknown, source: string): string | null {
 	const type = getString(spec, "type");
 	if (getBoolean(spec, "isTypeOnly")) return null;
 	const deepComponent = componentFromDeepImport(source);
-	if (deepComponent) return deep(deepComponent, type);
+	// if (deepComponent) return deep(deepComponent, type);
+	if (deepComponent) return deepComponent;
 
 	if (source === "@pathscale/ui" && type === "ImportSpecifier")
 		return importedName;
@@ -604,18 +605,18 @@ if (import.meta.main) {
 	main();
 }
 
-export type {
-	ComponentPurgeRecord,
-	LegacyComponentManifest as ComponentManifest,
-	LegacyComponentManifest,
-	PropUsage,
-	PurgeDatabaseV2,
-	PurgeManifest,
-	Safelists,
-};
 export {
 	buildSafelists,
 	extractJSXUsages,
 	extractUIImports,
 	scanConsumerSource,
+};
+export type {
+	LegacyComponentManifest as ComponentManifest,
+	ComponentPurgeRecord,
+	LegacyComponentManifest,
+	PropUsage,
+	PurgeDatabaseV2,
+	PurgeManifest,
+	Safelists,
 };
