@@ -230,6 +230,11 @@ function selectorDecision(
 	| "keep-unknown"
 	| "remove-unused-component"
 	| "remove-unused-variant" {
+	const attrs = extractAttrsFromSelector(selector);
+	if (attrs.some((attr) => safelists.attrSafelist.has(attr))) {
+		return "keep-known";
+	}
+
 	const classes = extractClassesFromSelector(selector);
 	if (classes.length === 0) return "keep-unknown";
 
@@ -541,15 +546,15 @@ if (import.meta.main) {
 	main();
 }
 
-export type {
-	NormalizedPurgeDatabase,
-	PurgeResult,
-	SelectorPurgeReport,
-	VarCleanupResult,
-};
 export {
 	cleanUnusedVars,
 	cleanUnusedVarsWithReport,
 	normalizePurgeDatabase,
 	purgeCssWithDatabase,
+};
+export type {
+	NormalizedPurgeDatabase,
+	PurgeResult,
+	SelectorPurgeReport,
+	VarCleanupResult,
 };
