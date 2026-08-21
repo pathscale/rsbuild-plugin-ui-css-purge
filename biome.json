@@ -4,7 +4,7 @@
 	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"linter": {
 		"enabled": true,
-		"rules": { "recommended": true }
+		"rules": { "recommended": true, "style": { "useImportType": "off" } }
 	},
 	"formatter": {
 		"enabled": true,
